@@ -45,8 +45,10 @@ jobs:
             "mailer_templates_confirmation_content": $TEMPLATE
           }
           JSON
-          curl -sS --fail-with-body -X PATCH \
+          CODE=$(curl -sS -X PATCH \
             -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
             -H "Content-Type: application/json" \
             "https://api.supabase.com/v1/projects/$PROJECT_REF/config/auth" \
-            --data @auth.json -o /dev/null -w "auth config: HTTP %{http_code}\n"
+            --data @auth.json -o resp.txt -w "%{http_code}")
+          echo "auth config: HTTP $CODE"
+          if [ "$CODE" -ge 300 ]; then cat resp.txt; exit 1; fi
