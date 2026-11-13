@@ -1,0 +1,52 @@
+name: Deploy backend (Supabase)
+
+on:
+  push:
+    branches: [main]
+    paths: ["supabase/**", ".github/workflows/deploy-supabase.yml"]
+  workflow_dispatch:
+
+concurrency: supabase-deploy
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link project
+        run: supabase link --project-ref "$PROJECT_REF"
+
+      - name: Apply database migrations
+        run: supabase db push --linked --include-all --yes
+
+      - name: Deploy functions
+        run: |
+          supabase functions deploy api  --project-ref "$PROJECT_REF" --no-verify-jwt --use-api
+          supabase functions deploy jobs --project-ref "$PROJECT_REF" --no-verify-jwt --use-api
+
+      - name: Configure sign-in emails and redirect URL
+        run: |
+          TEMPLATE=$(jq -Rs . < supabase/templates/code.html)
+          cat > auth.json <<JSON
+          {
+            "site_url": "https://abratica.github.io/ps-health/",
+            "uri_allow_list": "https://abratica.github.io/ps-health/**",
+            "mailer_otp_length": 6,
+            "mailer_subjects_magic_link": "Your PS Health code",
+            "mailer_templates_magic_link_content": $TEMPLATE,
+            "mailer_subjects_confirmation": "Your PS Health code",
+            "mailer_templates_confirmation_content": $TEMPLATE
+          }
+          JSON
+          curl -sS --fail-with-body -X PATCH \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.supabase.com/v1/projects/$PROJECT_REF/config/auth" \
+            --data @auth.json -o /dev/null -w "auth config: HTTP %{http_code}\n"
