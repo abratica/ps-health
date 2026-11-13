@@ -28,8 +28,8 @@ jobs:
 
       - name: Deploy functions
         run: |
-          supabase functions deploy api  --project-ref "$PROJECT_REF" --no-verify-jwt --use-api
-          supabase functions deploy jobs --project-ref "$PROJECT_REF" --no-verify-jwt --use-api
+          supabase functions deploy api  --project-ref "$PROJECT_REF" --no-verify-jwt --use-api --yes
+          supabase functions deploy jobs --project-ref "$PROJECT_REF" --no-verify-jwt --use-api --yes
 
       - name: Configure sign-in emails and redirect URL
         run: |
