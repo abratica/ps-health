@@ -31,18 +31,12 @@ jobs:
           supabase functions deploy api  --project-ref "$PROJECT_REF" --no-verify-jwt --use-api --yes
           supabase functions deploy jobs --project-ref "$PROJECT_REF" --no-verify-jwt --use-api --yes
 
-      - name: Configure sign-in emails and redirect URL
+      - name: Configure sign-in redirect URL
         run: |
-          TEMPLATE=$(jq -Rs . < supabase/templates/code.html)
           cat > auth.json <<JSON
           {
             "site_url": "https://abratica.github.io/ps-health/",
-            "uri_allow_list": "https://abratica.github.io/ps-health/**",
-            "mailer_otp_length": 6,
-            "mailer_subjects_magic_link": "Your PS Health code",
-            "mailer_templates_magic_link_content": $TEMPLATE,
-            "mailer_subjects_confirmation": "Your PS Health code",
-            "mailer_templates_confirmation_content": $TEMPLATE
+            "uri_allow_list": "https://abratica.github.io/ps-health/**"
           }
           JSON
           CODE=$(curl -sS -X PATCH \

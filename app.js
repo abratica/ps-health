@@ -3,7 +3,7 @@ import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 const SUPABASE_URL = "https://ktpztiyqyoalrwnqtqme.supabase.co";
 const SUPABASE_KEY = "sb_publishable_aUvlMasnVDO34rV8wBWnCw_oywTssOz";
 const API = `${SUPABASE_URL}/functions/v1/api`;
-const db = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: true, autoRefreshToken: true } });
+const db = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: "implicit" } });
 
 const $ = (s, el = document) => el.querySelector(s);
 const app = $("#app");
@@ -128,32 +128,27 @@ function renderSignIn() {
   app.innerHTML = `
     <div class="card">
       <h2>Sign in</h2>
-      <p class="muted small">Enter your email and we'll send a 6-digit code.</p>
+      <p class="muted small">Enter your email and we'll send you a sign-in link.</p>
       <form id="f-email">
         <label class="field"><span>Email</span><input class="input" id="email" type="email" autocomplete="email" required></label>
-        <button class="btn primary block">Send code</button>
+        <button class="btn primary block">Email me a link</button>
       </form>
-      <form id="f-code" hidden>
-        <label class="field"><span>Code from your email</span><input class="input" id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" required></label>
-        <button class="btn primary block">Sign in</button>
-        <p class="small muted" style="margin-top:10px">Didn't get it? Check spam, or <button type="button" class="link" id="resend">send again</button>.</p>
-      </form>
+      <div id="sent" hidden>
+        <p>Check your email and tap <b>Log In</b>. It opens PS Health signed in.</p>
+        <p class="small muted">Use this same phone. Didn't get it? Check spam, or <button type="button" class="link" id="resend">send again</button>.</p>
+      </div>
     </div>`;
-  const email = () => $("#email").value.trim();
   const send = async () => {
-    const { error } = await db.auth.signInWithOtp({ email: email(), options: { shouldCreateUser: true } });
+    const { error } = await db.auth.signInWithOtp({
+      email: $("#email").value.trim(),
+      options: { shouldCreateUser: true, emailRedirectTo: location.origin + location.pathname },
+    });
     if (error) return toast(error.message);
     $("#f-email").hidden = true;
-    $("#f-code").hidden = false;
-    $("#code").focus();
+    $("#sent").hidden = false;
   };
   $("#f-email").addEventListener("submit", (e) => { e.preventDefault(); send(); });
   $("#resend").addEventListener("click", send);
-  $("#f-code").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const { error } = await db.auth.verifyOtp({ email: email(), token: $("#code").value.trim(), type: "email" });
-    if (error) toast(error.message);
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -721,7 +716,7 @@ function showInstallBar() {
 // ---------------------------------------------------------------------------
 async function handleHash() {
   const h = location.hash.slice(1);
-  if (!h || !user) return false;
+  if (!h || !user || !/^(checkin|obs)=/.test(h)) return false;
   history.replaceState(null, "", location.pathname + location.search);
   const [k, v] = h.split("=");
   if (k === "checkin" && v) { tab = "today"; markTab(); await renderToday(v); return true; }
