@@ -71,7 +71,8 @@ h3 { font: 600 13px/1.2 Inter, sans-serif; text-transform: uppercase; letter-spa
 .btn:disabled { opacity: .55; cursor: default; }
 .link { background: none; border: 0; color: var(--accent); font-weight: 600; cursor: pointer; padding: 0; }
 
-.log-actions { display: grid; grid-template-columns: 1.4fr 1fr; gap: 10px; margin-top: 6px; }
+.log-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 6px; }
+.log-actions .wide { grid-column: 1 / -1; }
 .log-actions .btn { padding: 16px; font-size: 16px; }
 .log-actions svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
@@ -187,3 +188,9 @@ h3 { font: 600 13px/1.2 Inter, sans-serif; text-transform: uppercase; letter-spa
 .install-bar span { flex: 1; font-size: 13px; }
 .install-bar b { display: block; font-size: 14px; }
 .install-bar .x { border: 0; background: none; color: var(--muted); font-size: 20px; cursor: pointer; }
+
+/* Barcode scanner */
+.scan-box { position: relative; border-radius: 14px; overflow: hidden; background: #000; aspect-ratio: 4 / 3; }
+.scan-box video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.scan-line { position: absolute; left: 12%; right: 12%; top: 50%; height: 2px; background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+.scan-box::after { content: ""; position: absolute; inset: 22% 10%; border: 2px solid rgba(255,255,255,.8); border-radius: 10px; }

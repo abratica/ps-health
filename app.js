@@ -101,6 +101,7 @@ function openSheet(html) {
   return $("#sheet-body");
 }
 function closeSheet() {
+  stopScanner();
   $("#sheet").hidden = true;
   document.body.style.overflow = "";
 }
@@ -184,7 +185,8 @@ async function renderToday(highlightId) {
   app.innerHTML = `
     <div id="install-slot"></div>
     <div class="log-actions">
-      <button class="btn primary" id="snap"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>Snap food</button>
+      <button class="btn primary wide" id="snap"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>Snap food</button>
+      <button class="btn" id="scan"><svg viewBox="0 0 24 24"><path d="M4 7V5h3M17 5h3v2M20 17v2h-3M7 19H4v-2M8 9v6M11 9v6M14 9v6M16.5 9v6"/></svg>Scan barcode</button>
       <button class="btn" id="type"><svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4"/></svg>Type it</button>
     </div>
     <p class="small muted" style="margin:8px 2px 0">Eating something you've had before? Tap it in <button class="link" id="to-foods">My foods</button>.</p>
@@ -211,6 +213,7 @@ async function renderToday(highlightId) {
   `;
   $("#snap").addEventListener("click", () => $("#camera").click());
   $("#type").addEventListener("click", openTextLog);
+  $("#scan").addEventListener("click", openScanner);
   $("#to-foods").addEventListener("click", () => go("foods"));
   bindCheckins(app, () => renderToday());
   app.querySelectorAll("[data-meal]").forEach((b) => b.addEventListener("click", () => openMeal(b.dataset.meal)));
@@ -296,7 +299,9 @@ for (const id of ["camera", "gallery"]) {
       const img = await loadImage(file);
       const full = toJpeg(img, 1024, 0.8);
       const thumb = squareThumb(img);
-      analyze({ image: full.split(",")[1], mediaType: "image/jpeg" }, { thumb, source: "photo", preview: full });
+      const barcode = pendingBarcode;
+      pendingBarcode = null;
+      analyze({ image: full.split(",")[1], mediaType: "image/jpeg" }, { thumb, source: barcode ? "barcode" : "photo", preview: full, barcode });
     } catch {
       toast("Couldn't read that photo");
     }
@@ -320,6 +325,92 @@ function openTextLog() {
     if (text) analyze({ text }, { source: "text" });
   });
 }
+
+// ---------------------------------------------------------------------------
+// Barcode scanning (camera + Chrome's built-in barcode reader, Open Food Facts lookup)
+// ---------------------------------------------------------------------------
+let scanStream = null;
+let scanTimer = null;
+function stopScanner() {
+  clearTimeout(scanTimer);
+  scanTimer = null;
+  scanStream?.getTracks().forEach((t) => t.stop());
+  scanStream = null;
+}
+
+async function openScanner() {
+  const supported = "BarcodeDetector" in window;
+  const body = openSheet(`
+    <h2>Scan a barcode</h2>
+    ${supported ? `<div class="scan-box"><video id="cam" playsinline muted></video><div class="scan-line"></div></div>
+      <p class="small muted" style="text-align:center">Hold the barcode inside the box.</p>` :
+      `<p class="small muted">This browser can't read barcodes from the camera. Type the number under the barcode instead.</p>`}
+    <form id="bf" style="display:flex;gap:8px;margin-top:8px">
+      <input class="input" id="bc" inputmode="numeric" placeholder="Or type the barcode number" autocomplete="off">
+      <button class="btn primary">Look up</button>
+    </form>`);
+  $("#bf", body).addEventListener("submit", (e) => {
+    e.preventDefault();
+    const code = $("#bc", body).value.replace(/\D/g, "");
+    if (code.length >= 6) handleBarcode(code);
+  });
+  if (!supported) return;
+
+  try {
+    const formats = (await BarcodeDetector.getSupportedFormats()).filter((f) => ["ean_13", "ean_8", "upc_a", "upc_e"].includes(f));
+    const detector = new BarcodeDetector({ formats: formats.length ? formats : undefined });
+    scanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1280 } }, audio: false });
+    const video = $("#cam", body);
+    video.srcObject = scanStream;
+    await video.play();
+    const tick = async () => {
+      if (!scanStream) return;
+      try {
+        const codes = await detector.detect(video);
+        const hit = codes.find((c) => /^\d{6,14}$/.test(c.rawValue));
+        if (hit) {
+          navigator.vibrate?.(60);
+          return handleBarcode(hit.rawValue);
+        }
+      } catch {}
+      scanTimer = setTimeout(tick, 200);
+    };
+    tick();
+  } catch (err) {
+    stopScanner();
+    const box = $(".scan-box", body);
+    if (box) box.outerHTML = `<p class="small muted">Couldn't open the camera${err?.name === "NotAllowedError" ? " (permission was blocked)" : ""}. You can type the number instead.</p>`;
+  }
+}
+
+async function handleBarcode(code) {
+  stopScanner();
+  // Already in My foods? Then it's one tap.
+  const { data: known } = await db.from("foods").select("*").eq("barcode", code).limit(1);
+  if (known?.length) return openFood(known[0]);
+
+  openSheet(`<div class="spinner"></div><p class="muted" style="text-align:center">Looking up ${esc(code)}…</p>`);
+  try {
+    const result = await api("barcode", { code });
+    if (result.error) {
+      const body = openSheet(`
+        <h2>${result.error === "no_nutrition" ? "No nutrition info for that one" : "Not in the database yet"}</h2>
+        <p class="muted">Snap the Nutrition Facts label instead and I'll read the numbers off it.</p>
+        <button class="btn primary block" id="lbl">Snap the label</button>
+        <button class="btn ghost block" id="again" style="margin-top:8px">Scan again</button>`);
+      $("#lbl", body).addEventListener("click", () => { pendingBarcode = code; $("#camera").click(); });
+      $("#again", body).addEventListener("click", openScanner);
+      return;
+    }
+    review(result, { source: "barcode", barcode: code, thumb: result.image ?? null });
+  } catch (err) {
+    const body = openSheet(`<h2>That didn't work</h2><p class="muted small">${esc(err.message)}</p>
+      <button class="btn primary block" id="retry">Try again</button>`);
+    $("#retry", body).addEventListener("click", () => handleBarcode(code));
+  }
+}
+// When a barcode isn't found and you snap the label, remember the code so the next scan is instant.
+let pendingBarcode = null;
 
 async function analyze(payload, meta) {
   openSheet(`
@@ -361,7 +452,7 @@ function review(result, meta) {
     $("#items", body).innerHTML = items.length
       ? items.map((it, i) => `
         <div class="item">
-          <div><div class="nm">${esc(it.name)}${it.source === "estimate" ? '<span class="badge">estimate</span>' : ""}</div>
+          <div><div class="nm">${esc(it.name)}${it.source === "estimate" ? '<span class="badge">estimate</span>' : it.source === "label" ? '<span class="badge">label</span>' : ""}</div>
             <div class="pt">${esc(it.portion)} · ${r0(it.nutrients.kcal)} cal</div></div>
           <label><input class="input" type="number" inputmode="numeric" min="1" data-i="${i}" value="${it.grams}"> <span class="small muted">g</span></label>
           <button class="x" data-rm="${i}" aria-label="Remove">×</button>
@@ -412,6 +503,7 @@ function review(result, meta) {
       tags: result.tags ?? [],
       thumb: meta.thumb ?? null,
       source: meta.source,
+      barcode: meta.barcode ?? null,
     }).select().single();
     if (error) { $("#save", body).disabled = false; return toast(error.message); }
     await logFood(food, servings, new Date($("#at", body).value || Date.now()));

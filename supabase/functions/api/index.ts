@@ -1,6 +1,7 @@
 // App API, called from the PS Health web app by the signed-in owner.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { analyzeMeal } from "../_shared/food.ts";
+import { lookupBarcode } from "../_shared/barcode.ts";
 import { vapidKeys, pushToUser } from "../_shared/push.ts";
 import { runWeekly } from "../_shared/tasks.ts";
 import { ownerId } from "../_shared/db.ts";
@@ -40,6 +41,10 @@ Deno.serve(async (req) => {
         if (!body.image && !body.text) return json({ error: "Send a photo or a description" }, 400);
         const result = await analyzeMeal({ image: body.image, mediaType: body.mediaType, text: body.text });
         return json(result);
+      }
+      case "barcode": {
+        if (!body.code) return json({ error: "Send a barcode" }, 400);
+        return json(await lookupBarcode(body.code));
       }
       case "vapid": {
         const { publicKey } = await vapidKeys();

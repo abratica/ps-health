@@ -11,6 +11,7 @@ type ClaudeItem = {
   grams: number;
   usda_query: string;
   estimate: Partial<Nutrients>;
+  from_label?: boolean;
 };
 type ClaudeMeal = {
   error?: string;
@@ -36,6 +37,10 @@ Also return:
 - tags: any that apply from ["nut","soy","plant_sterol","soluble_fiber"] (soluble_fiber when the meal contains a meaningful source such as oats, barley, beans, lentils, apples, citrus, psyllium)
 - confidence: "high", "medium" or "low"
 - note: one short sentence about your main assumption, or ""
+If the photo shows a Nutrition Facts label (or any printed nutrition panel), do not estimate: return ONE item for the product,
+with portion = the label's serving size, grams = the serving size in grams (estimate from the label if only volume is given),
+estimate = the label's exact per-serving numbers (sodium in mg; soluble_fiber only if printed, else 0), usda_query = "", and "from_label": true.
+Use the product name if it is visible, otherwise a short description such as "Protein bar".
 If the image or text contains no food, reply {"error":"no_food"}.
 JSON shape: {"name":"","items":[{"name":"","portion":"","grams":0,"usda_query":"","estimate":{}}],"tags":[],"confidence":"","note":""}`;
 
@@ -92,7 +97,7 @@ export type AnalyzedItem = {
   grams: number;
   nutrients: Nutrients;
   per_gram: Nutrients;
-  source: "usda" | "estimate";
+  source: "usda" | "estimate" | "label";
   usda_desc?: string;
 };
 
@@ -120,9 +125,10 @@ export async function analyzeMeal(input: { image?: string; mediaType?: string; t
       const est = zero();
       for (const k of KEYS) est[k] = Number(it.estimate?.[k]) || 0;
 
-      const hit = await usdaLookup(it.usda_query || it.name);
+      const fromLabel = it.from_label === true;
+      const hit = fromLabel ? null : await usdaLookup(it.usda_query || it.name);
       let nutrients = est;
-      let source: "usda" | "estimate" = "estimate";
+      let source: "usda" | "estimate" | "label" = fromLabel ? "label" : "estimate";
       if (hit) {
         const fromUsda = zero();
         for (const k of KEYS) {
